@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	system := tractor.Start(PrintActor())
+	system := tractor.Start(LogActor)
 	system.Root().Tell("1")
 	system.Root().Tell("2")
 	system.Root().Tell("3")
@@ -15,12 +15,20 @@ func main() {
 	system.Wait()
 }
 
-func PrintActor() tractor.Behavior {
-	return tractor.Handle(func(msg interface{}) tractor.Behavior {
+func LogActor(ctx tractor.ActorContext) tractor.Behavior {
+	return tractor.Receive(func(msg interface{}) tractor.Behavior {
+		child := ctx.Spawn(PrintActor)
+		child.Tell(msg)
 		if msg == "QUIT" {
 			return tractor.Stopped()
 		}
-		fmt.Println(msg)
 		return tractor.Same()
+	})
+}
+
+func PrintActor(_ tractor.ActorContext) tractor.Behavior {
+	return tractor.Receive(func(msg interface{}) tractor.Behavior {
+		fmt.Println(msg)
+		return tractor.Stopped()
 	})
 }

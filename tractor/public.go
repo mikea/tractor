@@ -9,8 +9,6 @@ type ActorRef interface {
 	Tell(msg interface{})
 }
 
-type behaviorImpl struct {
-	Handler func(msg interface{}) Behavior
+type ActorContext interface {
+	Spawn(handler SetupHandler) ActorRef
 }
-
-type Behavior *behaviorImpl
