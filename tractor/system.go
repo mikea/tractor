@@ -8,10 +8,10 @@ import (
 const defaultMailboxSize = 1000
 
 func Start(root SetupHandler) ActorSystem {
-	return Run(Setup(root))
+	return run(Setup(root))
 }
 
-func Run(root Behavior) ActorSystem {
+func run(root Behavior) ActorSystem {
 	system := &actorSystemImpl{}
 	system.Start(root)
 	return system
@@ -59,7 +59,7 @@ func (ref *localActorRef) spawn(root Behavior) {
 
 		currentBehavior := root
 		if setup, ok := currentBehavior.(*setupBehavior); ok {
-			currentBehavior = setup.handler(ref.ctx)
+			currentBehavior = setup.apply(ref.ctx)
 		}
 
 		for {
@@ -71,7 +71,7 @@ func (ref *localActorRef) spawn(root Behavior) {
 			var newBehavior Behavior
 			switch b := currentBehavior.(type) {
 			case *receiveBehavior:
-				newBehavior = b.handler(msg)
+				newBehavior = b.apply(msg)
 			default:
 				panic(fmt.Sprintf("Bad behavior: %T", currentBehavior))
 			}

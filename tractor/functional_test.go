@@ -2,45 +2,48 @@ package tractor_test
 
 import (
 	"fmt"
-	"github.com/mikea/tractor/tractor"
+	. "github.com/mikea/tractor/tractor"
 	. "github.com/onsi/ginkgo"
 	//. "github.com/onsi/gomega"
 )
 
 var _ = Describe("ActorSystem", func() {
-	It("supports stopped actor", func() {
-		system := tractor.Run(tractor.Stopped())
+	It("supports actor stopped after setup", func() {
+		actor := func(ctx ActorContext) MessageHandler {
+			return Stopped()
+		}
+		system := Start(actor)
 		system.Wait()
 	})
 
-	It("supports actor stopped after setup", func() {
-		actor := func(ctx tractor.ActorContext) tractor.Behavior {
-			return tractor.Stopped()
+	It("countdown", func() {
+		system := Start(Countdown(10))
+		for i := 0; i < 10; i++ {
+			system.Root().Tell("")
 		}
-		system := tractor.Start(actor)
 		system.Wait()
 	})
 
 	It("complicatedTest", func() {
-		printBehavior := func(ctx tractor.ActorContext) tractor.Behavior {
-			return tractor.Receive(func(msg interface{}) tractor.Behavior {
+		printBehavior := func(ctx ActorContext) MessageHandler {
+			return func(msg interface{}) MessageHandler {
 				fmt.Println(msg)
-				return tractor.Stopped()
-			})
+				return Stopped()
+			}
 		}
 
-		logBehavior := func(ctx tractor.ActorContext) tractor.Behavior {
-			return tractor.Receive(func(msg interface{}) tractor.Behavior {
+		logBehavior := func(ctx ActorContext) MessageHandler {
+			return func(msg interface{}) MessageHandler {
 				child := ctx.Spawn(printBehavior)
 				child.Tell(msg)
 				if msg == "QUIT" {
-					return tractor.Stopped()
+					return Stopped()
 				}
-				return tractor.Same()
-			})
+				return nil
+			}
 		}
 
-		system := tractor.Start(logBehavior)
+		system := Start(logBehavior)
 		system.Root().Tell("1")
 		system.Root().Tell("2")
 		system.Root().Tell("3")
@@ -49,3 +52,16 @@ var _ = Describe("ActorSystem", func() {
 		system.Wait()
 	})
 })
+
+func Countdown(start int) SetupHandler {
+	count := start
+	return func(ctx ActorContext) MessageHandler {
+		return func(msg interface{}) MessageHandler {
+			count = count - 1
+			if count == 0 {
+				return Stopped()
+			}
+			return nil
+		}
+	}
+}

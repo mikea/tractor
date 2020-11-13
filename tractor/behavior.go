@@ -1,20 +1,24 @@
 package tractor
 
+import "reflect"
+
 type Behavior interface {
 	tag()
 }
 
-type SetupHandler func(ctx ActorContext) Behavior
-
 type receiveBehavior struct {
-	handler func(msg interface{}) Behavior
+	handler func(msg interface{}) MessageHandler
 }
 
 func (r receiveBehavior) tag() {
 	panic("implement me")
 }
 
-func Receive(handler func(msg interface{}) Behavior) Behavior {
+func (r receiveBehavior) apply(msg interface{}) Behavior {
+	return receive(r.handler(msg))
+}
+
+func Receive(handler MessageHandler) Behavior {
 	return &receiveBehavior{
 		handler: handler,
 	}
@@ -34,6 +38,20 @@ func (s setupBehavior) tag() {
 	panic("implement me")
 }
 
+func (s setupBehavior) apply(ctx ActorContext) Behavior {
+	return receive(s.handler(ctx))
+}
+
+func receive(handler MessageHandler) Behavior {
+	if handler == nil {
+		return &sameBehavior{}
+	}
+	if IsStopped(handler) {
+		return &stoppedBehavior{}
+	}
+	return Receive(handler)
+}
+
 type sameBehavior struct{}
 
 func (s sameBehavior) tag() {
@@ -46,10 +64,17 @@ func (s stoppedBehavior) tag() {
 	panic("implement me")
 }
 
-func Same() Behavior {
-	return &sameBehavior{}
+var stopped stoppedBehavior
+
+func Stopped() MessageHandler {
+	return stopped.handle
 }
 
-func Stopped() Behavior {
-	return &stoppedBehavior{}
+func (*stoppedBehavior) handle(_ interface{}) MessageHandler {
+	panic("should never be called")
+}
+
+func IsStopped(handler MessageHandler) bool {
+	// todo: faster?
+	return reflect.ValueOf(handler).Pointer() == reflect.ValueOf(Stopped()).Pointer()
 }
