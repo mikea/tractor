@@ -29,7 +29,7 @@ func (system *actorSystemImpl) Wait() {
 type localActorRef struct {
 	system  *actorSystemImpl
 	mailbox chan interface{}
-	ctx     ActorContext
+	ctx     *localActorContext
 }
 
 func (ref *localActorRef) Tell(msg interface{}) {
@@ -37,10 +37,15 @@ func (ref *localActorRef) Tell(msg interface{}) {
 }
 
 type localActorContext struct {
-	system *actorSystemImpl
+	system         *actorSystemImpl
+	deliverSignals bool
 }
 
-func (ctx localActorContext) Spawn(setup SetupHandler) ActorRef {
+func (ctx *localActorContext) DeliverSignals(value bool) {
+	ctx.deliverSignals = value
+}
+
+func (ctx *localActorContext) Spawn(setup SetupHandler) ActorRef {
 	ref := &localActorRef{
 		system:  ctx.system,
 		mailbox: make(chan interface{}, defaultMailboxSize),
@@ -53,13 +58,18 @@ func (ref *localActorRef) spawn(root Behavior) {
 	ref.system.waitGroup.Add(1)
 
 	go func() {
-		ref.ctx = &localActorContext{
+		ctx := &localActorContext{
 			system: ref.system,
 		}
+		ref.ctx = ctx
 
 		currentBehavior := root
 		if setup, ok := currentBehavior.(*setupBehavior); ok {
 			currentBehavior = setup.apply(ref.ctx)
+		}
+
+		if ctx.deliverSignals {
+			currentBehavior = ref.deliver(currentBehavior, postInit)
 		}
 
 		for {
@@ -68,21 +78,25 @@ func (ref *localActorRef) spawn(root Behavior) {
 			}
 
 			msg := <-ref.mailbox
-			var newBehavior Behavior
-			switch b := currentBehavior.(type) {
-			case *receiveBehavior:
-				newBehavior = b.apply(msg)
-			default:
-				panic(fmt.Sprintf("Bad behavior: %T", currentBehavior))
-			}
-
-			if _, ok := newBehavior.(*sameBehavior); !ok {
-				currentBehavior = newBehavior
-			}
+			currentBehavior = ref.deliver(currentBehavior, msg)
 		}
 
 		ref.system.waitGroup.Done()
 	}()
+}
+
+func (ref *localActorRef) deliver(behavior Behavior, msg interface{}) Behavior {
+	var newBehavior Behavior
+	switch b := behavior.(type) {
+	case *receiveBehavior:
+		newBehavior = b.apply(msg)
+	default:
+		panic(fmt.Sprintf("Bad behavior: %T", behavior))
+	}
+	if _, ok := newBehavior.(*sameBehavior); !ok {
+		return newBehavior
+	}
+	return behavior
 }
 
 func (system *actorSystemImpl) Root() ActorRef {
@@ -98,3 +112,16 @@ func (system *actorSystemImpl) Start(root Behavior) {
 	}
 	system.root.spawn(root)
 }
+
+type postInitStruct struct {
+}
+
+func (p postInitStruct) postInit() string {
+	panic("postInit")
+}
+
+func (p postInitStruct) signal() string {
+	panic("signal")
+}
+
+var postInit PostInitSignal = &postInitStruct{}

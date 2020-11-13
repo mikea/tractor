@@ -11,7 +11,17 @@ type ActorRef interface {
 
 type ActorContext interface {
 	Spawn(setup SetupHandler) ActorRef
+	DeliverSignals(value bool)
 }
 
 type MessageHandler func(message interface{}) MessageHandler
 type SetupHandler func(ctx ActorContext) MessageHandler
+
+type Signal interface {
+	signal() string
+}
+
+type PostInitSignal interface {
+	Signal
+	postInit() string
+}

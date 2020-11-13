@@ -4,7 +4,7 @@ import (
 	"fmt"
 	. "github.com/mikea/tractor/tractor"
 	. "github.com/onsi/ginkgo"
-	//. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("ActorSystem", func() {
@@ -22,6 +22,31 @@ var _ = Describe("ActorSystem", func() {
 			system.Root().Tell("")
 		}
 		system.Wait()
+	})
+
+	Context("Signals", func() {
+		It("PostInit", func() {
+			postInitDelivered := false
+
+			setup := func(ctx ActorContext) MessageHandler {
+				ctx.DeliverSignals(true)
+
+				return func(msg interface{}) MessageHandler {
+					switch msg.(type) {
+					case PostInitSignal:
+						postInitDelivered = true
+						return Stopped()
+					default:
+						panic("unsupported message")
+					}
+				}
+			}
+
+			system := Start(setup)
+			system.Wait()
+
+			Expect(postInitDelivered).To(BeTrue())
+		})
 	})
 
 	It("complicatedTest", func() {

@@ -18,12 +18,6 @@ func (r receiveBehavior) apply(msg interface{}) Behavior {
 	return receive(r.handler(msg))
 }
 
-func Receive(handler MessageHandler) Behavior {
-	return &receiveBehavior{
-		handler: handler,
-	}
-}
-
 func Setup(handler SetupHandler) Behavior {
 	return &setupBehavior{
 		handler: handler,
@@ -49,7 +43,9 @@ func receive(handler MessageHandler) Behavior {
 	if IsStopped(handler) {
 		return &stoppedBehavior{}
 	}
-	return Receive(handler)
+	return &receiveBehavior{
+		handler: handler,
+	}
 }
 
 type sameBehavior struct{}
