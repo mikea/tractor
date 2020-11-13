@@ -35,12 +35,9 @@ type setupBehavior struct {
 }
 
 func (s setupBehavior) apply(ctx ActorContext) behavior {
-	return receive(s.handler(ctx))
-}
-
-func receive(handler MessageHandler) behavior {
+	handler := s.handler(ctx)
 	if handler == nil {
-		return &sameBehavior{}
+		panic("nil result of setup handler")
 	}
 	if isStopped(handler) {
 		return &stoppedBehavior{}
@@ -58,9 +55,8 @@ type stoppedBehavior struct {
 	handler MessageHandler
 }
 
-func (s *stoppedBehavior) handle(msg interface{}) MessageHandler {
-	s.handler(msg)
-	return nil
+func (s *stoppedBehavior) handle(_ interface{}) MessageHandler {
+	panic("should not be called")
 }
 
 func isStopped(handler MessageHandler) bool {

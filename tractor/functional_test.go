@@ -61,32 +61,83 @@ var _ = Describe("ActorSystem", func() {
 		})
 	})
 
-	It("complicatedTest", func() {
-		printBehavior := func(ctx ActorContext) MessageHandler {
-			return func(msg interface{}) MessageHandler {
-				fmt.Println(msg)
+	Context("Spawn", func() {
+		It("Spawn start a child", func() {
+			child := func(ctx ActorContext) MessageHandler {
+				ctx.Parent().Tell("stop")
 				return Stopped()
 			}
-		}
 
-		logBehavior := func(ctx ActorContext) MessageHandler {
-			return func(msg interface{}) MessageHandler {
-				child := ctx.Spawn(printBehavior)
-				child.Tell(msg)
-				if msg == "QUIT" {
+			parent := func(ctx ActorContext) MessageHandler {
+				ctx.Spawn(child)
+				return func(msg interface{}) MessageHandler {
+					if msg == "stop" {
+						return Stopped()
+					}
+					panic(msg)
+				}
+			}
+
+			system := Start(parent)
+			system.Wait()
+		})
+	})
+
+	Context("Self", func() {
+		It("Tell to self", func() {
+			startReceived := false
+			stopReceived := false
+
+			parent := func(ctx ActorContext) MessageHandler {
+				ctx.Self().Tell("start")
+				ctx.Self().Tell("stop")
+				ctx.Self().Tell("wrong")
+				return func(msg interface{}) MessageHandler {
+					if msg == "start" {
+						Expect(startReceived).To(BeFalse())
+						Expect(stopReceived).To(BeFalse())
+						startReceived = true
+						return nil
+					}
+					if msg == "stop" {
+						Expect(startReceived).To(BeTrue())
+						Expect(stopReceived).To(BeFalse())
+						stopReceived = true
+						return Stopped()
+					}
+					panic(msg)
+				}
+			}
+
+			system := Start(parent)
+			system.Wait()
+			Expect(startReceived).To(BeTrue())
+			Expect(stopReceived).To(BeTrue())
+		})
+	})
+
+	Context("Behavior", func() {
+		It("Switching behavior", func() {
+			stopBehavior := func(msg interface{}) MessageHandler {
+				if msg == "stop" {
 					return Stopped()
 				}
-				return nil
+				panic(msg)
 			}
-		}
+			startBehavior := func(msg interface{}) MessageHandler {
+				if msg == "start" {
+					return stopBehavior
+				}
+				panic(msg)
+			}
 
-		system := Start(logBehavior)
-		system.Root().Tell("1")
-		system.Root().Tell("2")
-		system.Root().Tell("3")
-		system.Root().Tell("QUIT")
-
-		system.Wait()
+			system := Start(func(ctx ActorContext) MessageHandler {
+				return startBehavior
+			})
+			system.Root().Tell("start")
+			system.Root().Tell("stop")
+			system.Wait()
+		})
 	})
 })
 

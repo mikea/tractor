@@ -12,6 +12,8 @@ type ActorRef interface {
 type ActorContext interface {
 	Spawn(setup SetupHandler) ActorRef
 	DeliverSignals(value bool)
+	Parent() ActorRef
+	Self() ActorRef
 }
 
 type MessageHandler func(message interface{}) MessageHandler

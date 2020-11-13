@@ -38,7 +38,25 @@ func (ref *localActorRef) Tell(msg interface{}) {
 
 type localActorContext struct {
 	system         *actorSystemImpl
+	self           *localActorRef
+	parent         *localActorRef
 	deliverSignals bool
+}
+
+func newContext(system *actorSystemImpl, self *localActorRef, parent *localActorRef) *localActorContext {
+	return &localActorContext{
+		system: system,
+		self:   self,
+		parent: parent,
+	}
+}
+
+func (ctx *localActorContext) Parent() ActorRef {
+	return ctx.parent
+}
+
+func (ctx *localActorContext) Self() ActorRef {
+	return ctx.self
 }
 
 func (ctx *localActorContext) DeliverSignals(value bool) {
@@ -50,17 +68,15 @@ func (ctx *localActorContext) Spawn(handler SetupHandler) ActorRef {
 		system:  ctx.system,
 		mailbox: make(chan interface{}, defaultMailboxSize),
 	}
-	ref.spawn(setup(handler))
+	ref.start(ctx.self, setup(handler))
 	return ref
 }
 
-func (ref *localActorRef) spawn(root behavior) {
+func (ref *localActorRef) start(parent *localActorRef, root behavior) {
 	ref.system.waitGroup.Add(1)
 
 	go func() {
-		ctx := &localActorContext{
-			system: ref.system,
-		}
+		ctx := newContext(ref.system, ref, parent)
 		ref.ctx = ctx
 
 		currentBehavior := root
@@ -118,5 +134,5 @@ func (system *actorSystemImpl) Start(root behavior) {
 		system:  system,
 		mailbox: make(chan interface{}, 1000),
 	}
-	system.root.spawn(root)
+	system.root.start(nil, root)
 }
