@@ -8,11 +8,15 @@ import (
 
 var _ = Describe("ActorSystem", func() {
 	It("supports actor stopped after setup", func() {
+		initialized := false
 		actor := func(ctx ActorContext) MessageHandler {
+			initialized = true
 			return Stopped()
 		}
 		system := Start(actor)
 		system.Wait()
+
+		Expect(initialized).To(BeTrue())
 	})
 
 	It("countdown", func() {
