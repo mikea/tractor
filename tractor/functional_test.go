@@ -28,8 +28,9 @@ var _ = Describe("ActorSystem", func() {
 	})
 
 	Context("Signals", func() {
-		It("PostInit", func() {
+		It("PostInit/PostStop", func() {
 			postInitDelivered := false
+			postStopDelivered := false
 
 			setup := func(ctx ActorContext) MessageHandler {
 				ctx.DeliverSignals(true)
@@ -37,10 +38,17 @@ var _ = Describe("ActorSystem", func() {
 				return func(msg interface{}) MessageHandler {
 					switch msg.(type) {
 					case PostInitSignal:
+						Expect(postStopDelivered).To(BeFalse())
+						Expect(postInitDelivered).To(BeFalse())
 						postInitDelivered = true
 						return Stopped()
+					case PostStopSignal:
+						Expect(postStopDelivered).To(BeFalse())
+						Expect(postInitDelivered).To(BeTrue())
+						postStopDelivered = true
+						return nil
 					default:
-						panic("unsupported message")
+						panic(fmt.Sprintf("unsupported message %T", msg))
 					}
 				}
 			}
@@ -49,6 +57,7 @@ var _ = Describe("ActorSystem", func() {
 			system.Wait()
 
 			Expect(postInitDelivered).To(BeTrue())
+			Expect(postStopDelivered).To(BeTrue())
 		})
 	})
 

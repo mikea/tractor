@@ -17,14 +17,8 @@ type ActorContext interface {
 type MessageHandler func(message interface{}) MessageHandler
 type SetupHandler func(ctx ActorContext) MessageHandler
 
-type Signal interface {
-	signal() string
-}
-
-type PostInitSignal interface {
-	Signal
-	postInit() string
-}
+type PostInitSignal struct{}
+type PostStopSignal struct{}
 
 func Stopped() MessageHandler {
 	return stopped.handle

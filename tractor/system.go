@@ -69,16 +69,24 @@ func (ref *localActorRef) spawn(root behavior) {
 		}
 
 		if ctx.deliverSignals {
-			currentBehavior = ref.deliver(currentBehavior, postInit)
+			currentBehavior = ref.deliver(currentBehavior, PostInitSignal{})
 		}
 
 		for {
 			if _, ok := currentBehavior.(*stoppedBehavior); ok {
 				break
 			}
-
 			msg := <-ref.mailbox
 			currentBehavior = ref.deliver(currentBehavior, msg)
+		}
+
+		if ctx.deliverSignals {
+			switch b := currentBehavior.(type) {
+			case *stoppedBehavior:
+				b.handler(PostStopSignal{})
+			default:
+				panic(fmt.Sprintf("Expected stopped behavior: %T", currentBehavior))
+			}
 		}
 
 		ref.system.waitGroup.Done()
@@ -112,16 +120,3 @@ func (system *actorSystemImpl) Start(root behavior) {
 	}
 	system.root.spawn(root)
 }
-
-type postInitStruct struct {
-}
-
-func (p postInitStruct) postInit() string {
-	panic("postInit")
-}
-
-func (p postInitStruct) signal() string {
-	panic("signal")
-}
-
-var postInit PostInitSignal = &postInitStruct{}
