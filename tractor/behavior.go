@@ -2,7 +2,7 @@ package tractor
 
 import "reflect"
 
-type Behavior interface {
+type behavior interface {
 	tag()
 }
 
@@ -14,11 +14,11 @@ func (r receiveBehavior) tag() {
 	panic("implement me")
 }
 
-func (r receiveBehavior) apply(msg interface{}) Behavior {
+func (r receiveBehavior) apply(msg interface{}) behavior {
 	return receive(r.handler(msg))
 }
 
-func Setup(handler SetupHandler) Behavior {
+func setup(handler SetupHandler) behavior {
 	return &setupBehavior{
 		handler: handler,
 	}
@@ -32,15 +32,15 @@ func (s setupBehavior) tag() {
 	panic("implement me")
 }
 
-func (s setupBehavior) apply(ctx ActorContext) Behavior {
+func (s setupBehavior) apply(ctx ActorContext) behavior {
 	return receive(s.handler(ctx))
 }
 
-func receive(handler MessageHandler) Behavior {
+func receive(handler MessageHandler) behavior {
 	if handler == nil {
 		return &sameBehavior{}
 	}
-	if IsStopped(handler) {
+	if isStopped(handler) {
 		return &stoppedBehavior{}
 	}
 	return &receiveBehavior{
@@ -62,15 +62,11 @@ func (s stoppedBehavior) tag() {
 
 var stopped stoppedBehavior
 
-func Stopped() MessageHandler {
-	return stopped.handle
-}
-
 func (*stoppedBehavior) handle(_ interface{}) MessageHandler {
 	panic("should never be called")
 }
 
-func IsStopped(handler MessageHandler) bool {
+func isStopped(handler MessageHandler) bool {
 	// todo: faster?
 	return reflect.ValueOf(handler).Pointer() == reflect.ValueOf(Stopped()).Pointer()
 }

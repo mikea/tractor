@@ -8,10 +8,10 @@ import (
 const defaultMailboxSize = 1000
 
 func Start(root SetupHandler) ActorSystem {
-	return run(Setup(root))
+	return run(setup(root))
 }
 
-func run(root Behavior) ActorSystem {
+func run(root behavior) ActorSystem {
 	system := &actorSystemImpl{}
 	system.Start(root)
 	return system
@@ -45,16 +45,16 @@ func (ctx *localActorContext) DeliverSignals(value bool) {
 	ctx.deliverSignals = value
 }
 
-func (ctx *localActorContext) Spawn(setup SetupHandler) ActorRef {
+func (ctx *localActorContext) Spawn(handler SetupHandler) ActorRef {
 	ref := &localActorRef{
 		system:  ctx.system,
 		mailbox: make(chan interface{}, defaultMailboxSize),
 	}
-	ref.spawn(Setup(setup))
+	ref.spawn(setup(handler))
 	return ref
 }
 
-func (ref *localActorRef) spawn(root Behavior) {
+func (ref *localActorRef) spawn(root behavior) {
 	ref.system.waitGroup.Add(1)
 
 	go func() {
@@ -85,25 +85,25 @@ func (ref *localActorRef) spawn(root Behavior) {
 	}()
 }
 
-func (ref *localActorRef) deliver(behavior Behavior, msg interface{}) Behavior {
-	var newBehavior Behavior
-	switch b := behavior.(type) {
+func (ref *localActorRef) deliver(currentBehavior behavior, msg interface{}) behavior {
+	var newBehavior behavior
+	switch b := currentBehavior.(type) {
 	case *receiveBehavior:
 		newBehavior = b.apply(msg)
 	default:
-		panic(fmt.Sprintf("Bad behavior: %T", behavior))
+		panic(fmt.Sprintf("Bad behavior: %T", currentBehavior))
 	}
 	if _, ok := newBehavior.(*sameBehavior); !ok {
 		return newBehavior
 	}
-	return behavior
+	return currentBehavior
 }
 
 func (system *actorSystemImpl) Root() ActorRef {
 	return system.root
 }
 
-func (system *actorSystemImpl) Start(root Behavior) {
+func (system *actorSystemImpl) Start(root behavior) {
 	system.waitGroup = &sync.WaitGroup{}
 
 	system.root = &localActorRef{

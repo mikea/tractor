@@ -1,8 +1,7 @@
-package tractor_test
+package tractor
 
 import (
 	"fmt"
-	. "github.com/mikea/tractor/tractor"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )

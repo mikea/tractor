@@ -1,15 +1,14 @@
-package tractor_test
+package tractor
 
 import (
-	"github.com/mikea/tractor/tractor"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Behavior", func() {
-	Describe("IsStopped", func() {
+var _ = Describe("behavior", func() {
+	Describe("isStopped", func() {
 		It("returns true for stopped handler", func() {
-			Expect(tractor.IsStopped(tractor.Stopped())).To(BeTrue())
+			Expect(isStopped(Stopped())).To(BeTrue())
 		})
 	})
 })

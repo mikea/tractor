@@ -1,4 +1,4 @@
-package tractor_test
+package tractor
 
 import (
 	. "github.com/onsi/ginkgo"

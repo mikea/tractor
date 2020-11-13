@@ -25,3 +25,7 @@ type PostInitSignal interface {
 	Signal
 	postInit() string
 }
+
+func Stopped() MessageHandler {
+	return stopped.handle
+}
