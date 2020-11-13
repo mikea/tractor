@@ -10,5 +10,5 @@ type ActorRef interface {
 }
 
 type ActorContext interface {
-	Spawn(handler SetupHandler) ActorRef
+	Spawn(behavior Behavior) ActorRef
 }

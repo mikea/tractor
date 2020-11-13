@@ -7,9 +7,9 @@ import (
 
 const defaultMailboxSize = 1000
 
-func Start(handler SetupHandler) ActorSystem {
+func Start(root Behavior) ActorSystem {
 	system := &actorSystemImpl{}
-	system.Start(Setup(handler))
+	system.Start(root)
 	return system
 }
 
@@ -36,12 +36,12 @@ type localActorContext struct {
 	system *actorSystemImpl
 }
 
-func (ctx localActorContext) Spawn(handler SetupHandler) ActorRef {
+func (ctx localActorContext) Spawn(behavior Behavior) ActorRef {
 	ref := &localActorRef{
 		system:  ctx.system,
 		mailbox: make(chan interface{}, defaultMailboxSize),
 	}
-	ref.spawn(Setup(handler))
+	ref.spawn(behavior)
 	return ref
 }
 
@@ -57,25 +57,27 @@ func (ref *localActorRef) spawn(root Behavior) {
 		if setup, ok := currentBehavior.(*setupBehavior); ok {
 			currentBehavior = setup.handler(ref.ctx)
 		}
+
 		for {
+			if _, ok := currentBehavior.(*stoppedBehavior); ok {
+				break
+			}
+
 			msg := <-ref.mailbox
 			var newBehavior Behavior
 			switch b := currentBehavior.(type) {
 			case *receiveBehavior:
 				newBehavior = b.handler(msg)
 			default:
-				panic(fmt.Sprintf("Bad behavior: %t", currentBehavior))
+				panic(fmt.Sprintf("Bad behavior: %T", currentBehavior))
 			}
-			switch newBehavior.(type) {
-			case *stoppedBehavior:
-				ref.system.waitGroup.Done()
-				return
-			case *sameBehavior:
-				continue
-			default:
+
+			if _, ok := newBehavior.(*sameBehavior); !ok {
 				currentBehavior = newBehavior
 			}
 		}
+
+		ref.system.waitGroup.Done()
 	}()
 }
 
