@@ -14,13 +14,14 @@ type ActorContext interface {
 	DeliverSignals(value bool)
 	Parent() ActorRef
 	Self() ActorRef
+	Children() []ActorRef
 }
-
-type MessageHandler func(message interface{}) MessageHandler
-type SetupHandler func(ctx ActorContext) MessageHandler
 
 type PostInitSignal struct{}
 type PostStopSignal struct{}
+
+type MessageHandler func(message interface{}) MessageHandler
+type SetupHandler func(ctx ActorContext) MessageHandler
 
 func Stopped() MessageHandler {
 	return stopped.handle

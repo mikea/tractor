@@ -41,6 +41,11 @@ type localActorContext struct {
 	self           *localActorRef
 	parent         *localActorRef
 	deliverSignals bool
+	children       []ActorRef
+}
+
+func (ctx *localActorContext) Children() []ActorRef {
+	return ctx.children
 }
 
 func newContext(system *actorSystemImpl, self *localActorRef, parent *localActorRef) *localActorContext {
@@ -68,6 +73,7 @@ func (ctx *localActorContext) Spawn(handler SetupHandler) ActorRef {
 		system:  ctx.system,
 		mailbox: make(chan interface{}, defaultMailboxSize),
 	}
+	ctx.children = append(ctx.children, ref)
 	ref.start(ctx.self, setup(handler))
 	return ref
 }

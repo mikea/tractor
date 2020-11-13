@@ -61,61 +61,6 @@ var _ = Describe("ActorSystem", func() {
 		})
 	})
 
-	Context("Spawn", func() {
-		It("Spawn start a child", func() {
-			child := func(ctx ActorContext) MessageHandler {
-				ctx.Parent().Tell("stop")
-				return Stopped()
-			}
-
-			parent := func(ctx ActorContext) MessageHandler {
-				ctx.Spawn(child)
-				return func(msg interface{}) MessageHandler {
-					if msg == "stop" {
-						return Stopped()
-					}
-					panic(msg)
-				}
-			}
-
-			system := Start(parent)
-			system.Wait()
-		})
-	})
-
-	Context("Self", func() {
-		It("Tell to self", func() {
-			startReceived := false
-			stopReceived := false
-
-			parent := func(ctx ActorContext) MessageHandler {
-				ctx.Self().Tell("start")
-				ctx.Self().Tell("stop")
-				ctx.Self().Tell("wrong")
-				return func(msg interface{}) MessageHandler {
-					if msg == "start" {
-						Expect(startReceived).To(BeFalse())
-						Expect(stopReceived).To(BeFalse())
-						startReceived = true
-						return nil
-					}
-					if msg == "stop" {
-						Expect(startReceived).To(BeTrue())
-						Expect(stopReceived).To(BeFalse())
-						stopReceived = true
-						return Stopped()
-					}
-					panic(msg)
-				}
-			}
-
-			system := Start(parent)
-			system.Wait()
-			Expect(startReceived).To(BeTrue())
-			Expect(stopReceived).To(BeTrue())
-		})
-	})
-
 	Context("Behavior", func() {
 		It("Switching behavior", func() {
 			stopBehavior := func(msg interface{}) MessageHandler {
@@ -137,6 +82,92 @@ var _ = Describe("ActorSystem", func() {
 			system.Root().Tell("start")
 			system.Root().Tell("stop")
 			system.Wait()
+		})
+	})
+
+	Context("ActorContext", func() {
+		Context("Self", func() {
+			It("Tell to self", func() {
+				startReceived := false
+				stopReceived := false
+
+				parent := func(ctx ActorContext) MessageHandler {
+					ctx.Self().Tell("start")
+					ctx.Self().Tell("stop")
+					ctx.Self().Tell("wrong")
+					return func(msg interface{}) MessageHandler {
+						if msg == "start" {
+							Expect(startReceived).To(BeFalse())
+							Expect(stopReceived).To(BeFalse())
+							startReceived = true
+							return nil
+						}
+						if msg == "stop" {
+							Expect(startReceived).To(BeTrue())
+							Expect(stopReceived).To(BeFalse())
+							stopReceived = true
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
+				system := Start(parent)
+				system.Wait()
+				Expect(startReceived).To(BeTrue())
+				Expect(stopReceived).To(BeTrue())
+			})
+		})
+
+		Context("Spawn", func() {
+			It("Spawn start a child", func() {
+				child := func(ctx ActorContext) MessageHandler {
+					ctx.Parent().Tell("stop")
+					return Stopped()
+				}
+
+				parent := func(ctx ActorContext) MessageHandler {
+					ctx.Spawn(child)
+					return func(msg interface{}) MessageHandler {
+						if msg == "stop" {
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
+				system := Start(parent)
+				system.Wait()
+			})
+		})
+
+		Context("Children", func() {
+			It("empty on start", func() {
+				actor := func(ctx ActorContext) MessageHandler {
+					Expect(ctx.Children()).To(BeEmpty())
+					return Stopped()
+				}
+				system := Start(actor)
+				system.Wait()
+			})
+
+			It("spawn adds children", func() {
+				child := func(ctx ActorContext) MessageHandler {
+					return func(msg interface{}) MessageHandler {
+						return Stopped()
+					}
+				}
+
+				actor := func(ctx ActorContext) MessageHandler {
+					Expect(ctx.Children()).To(BeEmpty())
+					ref := ctx.Spawn(child)
+					Expect(ctx.Children()).To(HaveLen(1))
+					ref.Tell("stop")
+					return Stopped()
+				}
+				system := Start(actor)
+				system.Wait()
+			})
 		})
 	})
 })
