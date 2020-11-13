@@ -9,26 +9,27 @@ import (
 
 var _ = Describe("ActorSystem", func() {
 	It("supports stopped actor", func() {
-		system := tractor.Start(tractor.Stopped())
+		system := tractor.Run(tractor.Stopped())
 		system.Wait()
 	})
 
 	It("supports actor stopped after setup", func() {
-		system := tractor.Start(tractor.Setup(func(ctx tractor.ActorContext) tractor.Behavior {
+		actor := func(ctx tractor.ActorContext) tractor.Behavior {
 			return tractor.Stopped()
-		}))
+		}
+		system := tractor.Start(actor)
 		system.Wait()
 	})
 
 	It("complicatedTest", func() {
-		printBehavior := tractor.Setup(func(ctx tractor.ActorContext) tractor.Behavior {
+		printBehavior := func(ctx tractor.ActorContext) tractor.Behavior {
 			return tractor.Receive(func(msg interface{}) tractor.Behavior {
 				fmt.Println(msg)
 				return tractor.Stopped()
 			})
-		})
+		}
 
-		logBehavior := tractor.Setup(func(ctx tractor.ActorContext) tractor.Behavior {
+		logBehavior := func(ctx tractor.ActorContext) tractor.Behavior {
 			return tractor.Receive(func(msg interface{}) tractor.Behavior {
 				child := ctx.Spawn(printBehavior)
 				child.Tell(msg)
@@ -37,7 +38,7 @@ var _ = Describe("ActorSystem", func() {
 				}
 				return tractor.Same()
 			})
-		})
+		}
 
 		system := tractor.Start(logBehavior)
 		system.Root().Tell("1")

@@ -7,7 +7,11 @@ import (
 
 const defaultMailboxSize = 1000
 
-func Start(root Behavior) ActorSystem {
+func Start(root SetupHandler) ActorSystem {
+	return Run(Setup(root))
+}
+
+func Run(root Behavior) ActorSystem {
 	system := &actorSystemImpl{}
 	system.Start(root)
 	return system
@@ -36,12 +40,12 @@ type localActorContext struct {
 	system *actorSystemImpl
 }
 
-func (ctx localActorContext) Spawn(behavior Behavior) ActorRef {
+func (ctx localActorContext) Spawn(setup SetupHandler) ActorRef {
 	ref := &localActorRef{
 		system:  ctx.system,
 		mailbox: make(chan interface{}, defaultMailboxSize),
 	}
-	ref.spawn(behavior)
+	ref.spawn(Setup(setup))
 	return ref
 }
 
