@@ -30,6 +30,7 @@ var _ = Describe("ActorSystem", func() {
 	Context("Signals", func() {
 		It("PostInit/PostStop", func() {
 			postInitDelivered := false
+			preStopDelivered := false
 			postStopDelivered := false
 
 			setup := func(ctx ActorContext) MessageHandler {
@@ -38,13 +39,20 @@ var _ = Describe("ActorSystem", func() {
 				return func(msg interface{}) MessageHandler {
 					switch msg.(type) {
 					case PostInitSignal:
-						Expect(postStopDelivered).To(BeFalse())
 						Expect(postInitDelivered).To(BeFalse())
+						Expect(preStopDelivered).To(BeFalse())
 						postInitDelivered = true
 						return Stopped()
-					case PostStopSignal:
-						Expect(postStopDelivered).To(BeFalse())
+					case PreStopSignal:
 						Expect(postInitDelivered).To(BeTrue())
+						Expect(preStopDelivered).To(BeFalse())
+						Expect(postStopDelivered).To(BeFalse())
+						preStopDelivered = true
+						return nil
+					case PostStopSignal:
+						Expect(postInitDelivered).To(BeTrue())
+						Expect(preStopDelivered).To(BeTrue())
+						Expect(postStopDelivered).To(BeFalse())
 						postStopDelivered = true
 						return nil
 					default:
@@ -57,6 +65,7 @@ var _ = Describe("ActorSystem", func() {
 			system.Wait()
 
 			Expect(postInitDelivered).To(BeTrue())
+			Expect(preStopDelivered).To(BeTrue())
 			Expect(postStopDelivered).To(BeTrue())
 		})
 	})
@@ -168,6 +177,31 @@ var _ = Describe("ActorSystem", func() {
 				system := Start(actor)
 				system.Wait()
 			})
+		})
+	})
+
+	Context("Children", func() {
+		It("children are stopped when parent is", func() {
+			childStopped := false
+			child := func(ctx ActorContext) MessageHandler {
+				ctx.DeliverSignals(true)
+				return func(msg interface{}) MessageHandler {
+					if _, ok := msg.(PostStopSignal); ok {
+						Expect(childStopped).To(BeFalse())
+						childStopped = true
+					}
+					return nil
+				}
+			}
+
+			parent := func(ctx ActorContext) MessageHandler {
+				ctx.Spawn(child)
+				return Stopped()
+			}
+
+			system := Start(parent)
+			system.Wait()
+			Expect(childStopped).To(BeTrue())
 		})
 	})
 })

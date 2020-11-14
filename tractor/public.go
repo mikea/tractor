@@ -18,6 +18,7 @@ type ActorContext interface {
 }
 
 type PostInitSignal struct{}
+type PreStopSignal struct{}
 type PostStopSignal struct{}
 
 type MessageHandler func(message interface{}) MessageHandler

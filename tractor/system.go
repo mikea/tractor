@@ -8,28 +8,25 @@ import (
 const defaultMailboxSize = 1000
 
 func Start(root SetupHandler) ActorSystem {
-	return run(setup(root))
-}
-
-func run(root behavior) ActorSystem {
 	system := &actorSystemImpl{}
 	system.Start(root)
 	return system
 }
 
 type actorSystemImpl struct {
+	topCotext *localActorContext
 	root      *localActorRef
-	waitGroup *sync.WaitGroup
 }
 
 func (system *actorSystemImpl) Wait() {
-	system.waitGroup.Wait()
+	system.topCotext.childrenWaitGroup.Wait()
 }
 
 type localActorRef struct {
-	system  *actorSystemImpl
-	mailbox chan interface{}
-	ctx     *localActorContext
+	system   *actorSystemImpl
+	mailbox  chan interface{}
+	commands chan interface{}
+	ctx      *localActorContext
 }
 
 func (ref *localActorRef) Tell(msg interface{}) {
@@ -37,27 +34,33 @@ func (ref *localActorRef) Tell(msg interface{}) {
 }
 
 type localActorContext struct {
-	system         *actorSystemImpl
-	self           *localActorRef
-	parent         *localActorRef
-	deliverSignals bool
-	children       []ActorRef
+	system            *actorSystemImpl
+	parent            *localActorContext
+	childrenWaitGroup *sync.WaitGroup
+	self              *localActorRef
+	deliverSignals    bool
+	children          []*localActorRef
 }
 
 func (ctx *localActorContext) Children() []ActorRef {
-	return ctx.children
+	result := make([]ActorRef, len(ctx.children))
+	for i, ref := range ctx.children {
+		result[i] = ref
+	}
+	return result
 }
 
-func newContext(system *actorSystemImpl, self *localActorRef, parent *localActorRef) *localActorContext {
+func newContext(system *actorSystemImpl, self *localActorRef, parent *localActorContext) *localActorContext {
 	return &localActorContext{
-		system: system,
-		self:   self,
-		parent: parent,
+		system:            system,
+		self:              self,
+		parent:            parent,
+		childrenWaitGroup: &sync.WaitGroup{},
 	}
 }
 
 func (ctx *localActorContext) Parent() ActorRef {
-	return ctx.parent
+	return ctx.parent.self
 }
 
 func (ctx *localActorContext) Self() ActorRef {
@@ -69,50 +72,79 @@ func (ctx *localActorContext) DeliverSignals(value bool) {
 }
 
 func (ctx *localActorContext) Spawn(handler SetupHandler) ActorRef {
+	return ctx.spawn(handler)
+}
+
+func (ctx *localActorContext) spawn(handler SetupHandler) *localActorRef {
 	ref := &localActorRef{
 		system:  ctx.system,
 		mailbox: make(chan interface{}, defaultMailboxSize),
 	}
 	ctx.children = append(ctx.children, ref)
-	ref.start(ctx.self, setup(handler))
+	ctx.childrenWaitGroup.Add(1)
+	go func() {
+		ref.mainLoop(ctx, setup(handler))
+	}()
 	return ref
 }
 
-func (ref *localActorRef) start(parent *localActorRef, root behavior) {
-	ref.system.waitGroup.Add(1)
+type terminate struct{}
 
-	go func() {
-		ctx := newContext(ref.system, ref, parent)
-		ref.ctx = ctx
+func (ref *localActorRef) mainLoop(parentContext *localActorContext, root behavior) {
+	ctx := newContext(ref.system, ref, parentContext)
+	ref.ctx = ctx
 
-		currentBehavior := root
-		if setup, ok := currentBehavior.(*setupBehavior); ok {
-			currentBehavior = setup.apply(ref.ctx)
+	currentBehavior := root
+	if setup, ok := currentBehavior.(*setupBehavior); ok {
+		currentBehavior = setup.apply(ref.ctx)
+	}
+
+	if ctx.deliverSignals {
+		currentBehavior = ref.deliver(currentBehavior, PostInitSignal{})
+	}
+
+	for {
+		if _, ok := currentBehavior.(*stoppedBehavior); ok {
+			break
 		}
 
-		if ctx.deliverSignals {
-			currentBehavior = ref.deliver(currentBehavior, PostInitSignal{})
-		}
-
-		for {
-			if _, ok := currentBehavior.(*stoppedBehavior); ok {
-				break
-			}
-			msg := <-ref.mailbox
+		select {
+		case msg := <-ref.mailbox:
 			currentBehavior = ref.deliver(currentBehavior, msg)
-		}
-
-		if ctx.deliverSignals {
-			switch b := currentBehavior.(type) {
-			case *stoppedBehavior:
-				b.handler(PostStopSignal{})
+		case cmd := <-ref.commands:
+			switch cmd.(type) {
+			case *terminate:
+				currentBehavior = &stoppedBehavior{}
 			default:
-				panic(fmt.Sprintf("Expected stopped behavior: %T", currentBehavior))
+				panic(fmt.Sprintf("Bad command: %T", cmd))
 			}
 		}
+	}
 
-		ref.system.waitGroup.Done()
-	}()
+	if ctx.deliverSignals {
+		switch b := currentBehavior.(type) {
+		case *stoppedBehavior:
+			b.handler(PreStopSignal{})
+		default:
+			panic(fmt.Sprintf("Expected stopped behavior: %T", currentBehavior))
+		}
+	}
+
+	for _, child := range ctx.children {
+		child.commands <- &terminate{}
+	}
+	ctx.childrenWaitGroup.Wait()
+
+	if ctx.deliverSignals {
+		switch b := currentBehavior.(type) {
+		case *stoppedBehavior:
+			b.handler(PostStopSignal{})
+		default:
+			panic(fmt.Sprintf("Expected stopped behavior: %T", currentBehavior))
+		}
+	}
+
+	ctx.parent.childrenWaitGroup.Done()
 }
 
 func (ref *localActorRef) deliver(currentBehavior behavior, msg interface{}) behavior {
@@ -133,12 +165,7 @@ func (system *actorSystemImpl) Root() ActorRef {
 	return system.root
 }
 
-func (system *actorSystemImpl) Start(root behavior) {
-	system.waitGroup = &sync.WaitGroup{}
-
-	system.root = &localActorRef{
-		system:  system,
-		mailbox: make(chan interface{}, 1000),
-	}
-	system.root.start(nil, root)
+func (system *actorSystemImpl) Start(root SetupHandler) {
+	system.topCotext = newContext(system, nil, nil)
+	system.root = system.topCotext.spawn(root)
 }
