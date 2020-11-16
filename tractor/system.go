@@ -10,17 +10,17 @@ const defaultCommandsSize = 2
 
 func Start(root SetupHandler) ActorSystem {
 	system := &actorSystemImpl{}
-	system.Start(root)
+	system.start(root)
 	return system
 }
 
 type actorSystemImpl struct {
-	topCotext *localActorContext
-	root      *localActorRef
+	topContext *localActorContext
+	root       *localActorRef
 }
 
 func (system *actorSystemImpl) Wait() {
-	system.topCotext.childrenWaitGroup.Wait()
+	system.topContext.childrenWaitGroup.Wait()
 }
 
 type localActorRef struct {
@@ -174,7 +174,7 @@ func (system *actorSystemImpl) Root() ActorRef {
 	return system.root
 }
 
-func (system *actorSystemImpl) Start(root SetupHandler) {
-	system.topCotext = newContext(system, nil, nil)
-	system.root = system.topCotext.spawn(root)
+func (system *actorSystemImpl) start(root SetupHandler) {
+	system.topContext = newContext(system, nil, nil)
+	system.root = system.topContext.spawn(root)
 }
