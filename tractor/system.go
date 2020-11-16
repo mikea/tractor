@@ -40,6 +40,11 @@ type localActorContext struct {
 	self              *localActorRef
 	deliverSignals    bool
 	children          []*localActorRef
+	listeners         []ActorRef
+}
+
+func (ctx *localActorContext) Watch(actor ActorRef) {
+	actor.(*localActorRef).commands <- &listenCommand{ref: ctx.self}
 }
 
 func (ctx *localActorContext) Children() []ActorRef {
@@ -90,7 +95,10 @@ func (ctx *localActorContext) spawn(handler SetupHandler) *localActorRef {
 	return ref
 }
 
-type terminate struct{}
+type terminateCommand struct{}
+type listenCommand struct {
+	ref ActorRef
+}
 
 func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 	messageHandler := setup(ctx)
@@ -110,9 +118,11 @@ func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 		lastMessageHandler = messageHandler
 		select {
 		case cmd := <-ref.commands:
-			switch cmd.(type) {
-			case *terminate:
+			switch command := cmd.(type) {
+			case *terminateCommand:
 				messageHandler = Stopped()
+			case *listenCommand:
+				ctx.listeners = append(ctx.listeners, command.ref)
 			default:
 				panic(fmt.Sprintf("Bad command: %T", cmd))
 			}
@@ -123,20 +133,41 @@ func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 		}
 	}
 
+	// drain commands if any
+l:
+	for {
+		select {
+		case cmd := <-ref.commands:
+			switch command := cmd.(type) {
+			case *terminateCommand:
+				// do nothing
+			case *listenCommand:
+				ctx.listeners = append(ctx.listeners, command.ref)
+			default:
+				panic(fmt.Sprintf("Bad command: %T", cmd))
+			}
+		default:
+			break l
+		}
+	}
+
 	if ctx.deliverSignals {
 		lastMessageHandler(PreStopSignal{})
 	}
 
 	for _, child := range ctx.children {
-		child.commands <- &terminate{}
+		child.commands <- &terminateCommand{}
 	}
 	ctx.childrenWaitGroup.Wait()
 
 	if ctx.deliverSignals {
 		lastMessageHandler(PostStopSignal{})
 	}
-
 	ctx.parent.childrenWaitGroup.Done()
+
+	for _, listener := range ctx.listeners {
+		listener.Tell(Terminated{Ref: ctx.self})
+	}
 }
 
 func (system *actorSystemImpl) Root() ActorRef {

@@ -178,6 +178,38 @@ var _ = Describe("ActorSystem", func() {
 				system.Wait()
 			})
 		})
+
+		Context("Watch", func() {
+			It("gets notified of termination", func() {
+				child := func(ctx ActorContext) MessageHandler {
+					return func(msg interface{}) MessageHandler {
+						if msg == "stop" {
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
+				root := func(ctx ActorContext) MessageHandler {
+					ref := ctx.Spawn(child)
+					ctx.Watch(ref)
+					return func(msg interface{}) MessageHandler {
+						if msg == "stopChild" {
+							ref.Tell("stop")
+							return nil
+						}
+						if _, ok := msg.(Terminated); ok {
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
+				system := Start(root)
+				system.Root().Tell("stopChild")
+				system.Wait()
+			})
+		})
 	})
 
 	Context("Children", func() {

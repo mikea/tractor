@@ -15,11 +15,16 @@ type ActorContext interface {
 	Parent() ActorRef
 	Self() ActorRef
 	Children() []ActorRef
+	Watch(actor ActorRef)
 }
 
 type PostInitSignal struct{}
 type PreStopSignal struct{}
 type PostStopSignal struct{}
+
+type Terminated struct {
+	Ref ActorRef
+}
 
 type MessageHandler func(message interface{}) MessageHandler
 type SetupHandler func(ctx ActorContext) MessageHandler
