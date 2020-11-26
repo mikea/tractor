@@ -44,8 +44,8 @@ To parametrize an actor, create a closure binding initialization parameters:
 
 ```go
 func Countdown(start int) SetupHandler {
-	count := start
 	return func(ctx ActorContext) MessageHandler {
+        count := start
 		return func(msg interface{}) MessageHandler {
 			count = count - 1
 			if count == 0 {
