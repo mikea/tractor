@@ -105,6 +105,12 @@ func(ctx ActorContext) MessageHandler {
 }
 ```
 
+or with a custom message:
+
+```go
+ctx.WatchWith(ctx.Spawn(child), "childTerminated")
+```
+
 ### Actor System
 
 #### Starting System

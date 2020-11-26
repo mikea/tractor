@@ -33,6 +33,11 @@ func (ref *localActorRef) Tell(msg interface{}) {
 	ref.mailbox <- msg
 }
 
+type terminateListener struct {
+	ref ActorRef
+	msg interface{}
+}
+
 type localActorContext struct {
 	system            *actorSystemImpl
 	parent            *localActorContext
@@ -40,11 +45,15 @@ type localActorContext struct {
 	self              *localActorRef
 	deliverSignals    bool
 	children          []*localActorRef
-	listeners         []ActorRef
+	listeners         []terminateListener
 }
 
 func (ctx *localActorContext) Watch(actor ActorRef) {
-	actor.(*localActorRef).commands <- &listenCommand{ref: ctx.self}
+	ctx.WatchWith(actor, Terminated{})
+}
+
+func (ctx *localActorContext) WatchWith(actor ActorRef, msg interface{}) {
+	actor.(*localActorRef).commands <- &listenCommand{ref: ctx.self, msg: msg}
 }
 
 func (ctx *localActorContext) Children() []ActorRef {
@@ -98,6 +107,7 @@ func (ctx *localActorContext) spawn(handler SetupHandler) *localActorRef {
 type terminateCommand struct{}
 type listenCommand struct {
 	ref ActorRef
+	msg interface{}
 }
 
 func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
@@ -125,7 +135,7 @@ func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 			case *terminateCommand:
 				messageHandler = Stopped()
 			case *listenCommand:
-				ctx.listeners = append(ctx.listeners, command.ref)
+				ctx.listeners = append(ctx.listeners, terminateListener{ref: command.ref, msg: command.msg})
 			default:
 				panic(fmt.Sprintf("Bad command: %T", cmd))
 			}
@@ -145,7 +155,7 @@ l:
 			case *terminateCommand:
 				// do nothing
 			case *listenCommand:
-				ctx.listeners = append(ctx.listeners, command.ref)
+				ctx.listeners = append(ctx.listeners, terminateListener{ref: command.ref, msg: command.msg})
 			default:
 				panic(fmt.Sprintf("Bad command: %T", cmd))
 			}
@@ -169,7 +179,7 @@ l:
 	ctx.parent.childrenWaitGroup.Done()
 
 	for _, listener := range ctx.listeners {
-		listener.Tell(Terminated{Ref: ctx.self})
+		listener.ref.Tell(listener.msg)
 	}
 }
 

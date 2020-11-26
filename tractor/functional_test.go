@@ -241,6 +241,35 @@ var _ = Describe("ActorSystem", func() {
 				system.Root().Tell("stopChild")
 				system.Wait()
 			})
+
+			It("can send custom message", func() {
+				child := func(ctx ActorContext) MessageHandler {
+					return func(msg interface{}) MessageHandler {
+						if msg == "stop" {
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
+				root := func(ctx ActorContext) MessageHandler {
+					ref := ctx.Spawn(child)
+					ctx.WatchWith(ref, "childTerminated")
+					return func(msg interface{}) MessageHandler {
+						if msg == "stopChild" {
+							ref.Tell("stop")
+							return nil
+						} else if msg == "childTerminated" {
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
+				system := Start(root)
+				system.Root().Tell("stopChild")
+				system.Wait()
+			})
 		})
 	})
 

@@ -16,6 +16,7 @@ type ActorContext interface {
 	Self() ActorRef
 	Children() []ActorRef
 	Watch(actor ActorRef)
+	WatchWith(actor ActorRef, msg interface{})
 }
 
 type PostInitSignal struct{}
