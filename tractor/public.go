@@ -26,8 +26,8 @@ type Terminated struct {
 	Ref ActorRef
 }
 
-type MessageHandler func(message interface{}) MessageHandler
 type SetupHandler func(ctx ActorContext) MessageHandler
+type MessageHandler func(message interface{}) MessageHandler
 
 func Stopped() MessageHandler {
 	return stopped.handle
