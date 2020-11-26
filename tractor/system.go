@@ -102,6 +102,9 @@ type listenCommand struct {
 
 func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 	messageHandler := setup(ctx)
+	if messageHandler == nil {
+		messageHandler = ignoreAll
+	}
 
 	lastMessageHandler := messageHandler
 	if ctx.deliverSignals && !isStopped(messageHandler) {

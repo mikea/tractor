@@ -15,3 +15,7 @@ func isStopped(handler MessageHandler) bool {
 	// todo: can this be made faster?
 	return reflect.ValueOf(handler).Pointer() == reflect.ValueOf(Stopped()).Pointer()
 }
+
+func ignoreAll(interface{}) MessageHandler {
+	return nil
+}

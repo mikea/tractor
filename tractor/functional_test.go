@@ -28,7 +28,7 @@ var _ = Describe("ActorSystem", func() {
 	})
 
 	Context("Signals", func() {
-		It("PostInit/PostStop", func() {
+		It("All Signals", func() {
 			postInitDelivered := false
 			preStopDelivered := false
 			postStopDelivered := false
@@ -67,6 +67,38 @@ var _ = Describe("ActorSystem", func() {
 			Expect(postInitDelivered).To(BeTrue())
 			Expect(preStopDelivered).To(BeTrue())
 			Expect(postStopDelivered).To(BeTrue())
+		})
+
+		Context("PostInit", func() {
+			It("Is delivered before any message", func() {
+				postInitDelivered := false
+				msgDelivered := false
+
+				setup := func(ctx ActorContext) MessageHandler {
+					ctx.Self().Tell("test")
+					ctx.DeliverSignals(true)
+
+					return func(msg interface{}) MessageHandler {
+						switch msg.(type) {
+						case PostInitSignal:
+							Expect(postInitDelivered).To(BeFalse())
+							Expect(msgDelivered).To(BeFalse())
+							postInitDelivered = true
+						case string:
+							Expect(postInitDelivered).To(BeTrue())
+							Expect(msgDelivered).To(BeFalse())
+							msgDelivered = true
+							return Stopped()
+						}
+						return nil
+					}
+				}
+
+				system := Start(setup)
+				system.Wait()
+				Expect(postInitDelivered).To(BeTrue())
+				Expect(msgDelivered).To(BeTrue())
+			})
 		})
 	})
 
