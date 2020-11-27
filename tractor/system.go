@@ -2,6 +2,7 @@ package tractor
 
 import (
 	"fmt"
+	"os"
 	"sync"
 )
 
@@ -114,14 +115,14 @@ type childTerminatedCommand struct {
 }
 
 func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
-	messageHandler := setup(ctx)
+	messageHandler := ctx.setup(setup)
 	if messageHandler == nil {
 		messageHandler = Stopped()
 	}
 
 	lastMessageHandler := messageHandler
 	if ctx.deliverSignals && !isStopped(messageHandler) {
-		if newHandler := messageHandler(PostInitSignal{}); newHandler != nil {
+		if newHandler := ctx.deliver(messageHandler, PostInitSignal{}); newHandler != nil {
 			messageHandler = newHandler
 		}
 	}
@@ -145,7 +146,7 @@ func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 				panic(fmt.Sprintf("Bad command: %T", cmd))
 			}
 		case msg := <-ref.mailbox:
-			if newHandler := messageHandler(msg); newHandler != nil {
+			if newHandler := ctx.deliver(messageHandler, msg); newHandler != nil {
 				messageHandler = newHandler
 			}
 		}
@@ -172,7 +173,7 @@ l:
 	}
 
 	if ctx.deliverSignals {
-		lastMessageHandler(PreStopSignal{})
+		ctx.deliver(lastMessageHandler, PreStopSignal{})
 	}
 
 	for _, child := range ctx.children {
@@ -181,7 +182,7 @@ l:
 	ctx.childrenWaitGroup.Wait()
 
 	if ctx.deliverSignals {
-		lastMessageHandler(PostStopSignal{})
+		ctx.deliver(lastMessageHandler, PostStopSignal{})
 	}
 	ctx.parent.childrenWaitGroup.Done()
 	if ctx.parent.self != nil {
@@ -191,6 +192,26 @@ l:
 	for _, listener := range ctx.listeners {
 		listener.ref.Tell(listener.msg)
 	}
+}
+
+func (ctx *localActorContext) setup(handler SetupHandler) MessageHandler {
+	defer func() {
+		if err := recover(); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "actor setup panic: %s\n", err)
+		}
+	}()
+	return handler(ctx)
+}
+
+func (ctx *localActorContext) deliver(messageHandler MessageHandler, msg interface{}) (newHandler MessageHandler) {
+	newHandler = Stopped()
+	defer func() {
+		if err := recover(); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "actor panic: %s\n", err)
+		}
+	}()
+	newHandler = messageHandler(msg)
+	return newHandler
 }
 
 func (ctx *localActorContext) onListenCommand(command *listenCommand) {

@@ -116,7 +116,20 @@ var _ = Describe("ActorSystem", func() {
 
 			Expect(initialized).To(BeTrue())
 		})
+
+		It("panic stops the actor", func() {
+			initialized := false
+			actor := func(ctx ActorContext) MessageHandler {
+				initialized = true
+				panic("stop")
+			}
+			system := Start(actor)
+			system.Wait()
+
+			Expect(initialized).To(BeTrue())
+		})
 	})
+
 	Context("MessageHandler", func() {
 		It("Switching behavior", func() {
 			stopBehavior := func(msg interface{}) MessageHandler {
@@ -137,6 +150,33 @@ var _ = Describe("ActorSystem", func() {
 			})
 			system.Root().Tell("start")
 			system.Root().Tell("stop")
+			system.Wait()
+		})
+
+		It("Panic stops the actor", func() {
+			child := func(ctx ActorContext) MessageHandler {
+				return func(msg interface{}) MessageHandler {
+					panic(msg)
+				}
+			}
+
+			actor := func(ctx ActorContext) MessageHandler {
+				Expect(ctx.Children()).To(BeEmpty())
+				ref := ctx.Spawn(child)
+				Expect(ctx.Children()).To(HaveLen(1))
+				ctx.Watch(ref)
+				ref.Tell("stop")
+
+				return func(msg interface{}) MessageHandler {
+					if _, ok := msg.(Terminated); ok {
+						Expect(ctx.Children()).To(HaveLen(0))
+						return Stopped()
+					}
+					panic(msg)
+				}
+			}
+
+			system := Start(actor)
 			system.Wait()
 		})
 	})
