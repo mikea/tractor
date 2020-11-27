@@ -7,24 +7,14 @@ import (
 )
 
 var _ = Describe("ActorSystem", func() {
-	It("supports actor stopped after setup", func() {
-		initialized := false
-		actor := func(ctx ActorContext) MessageHandler {
-			initialized = true
-			return Stopped()
-		}
-		system := Start(actor)
-		system.Wait()
-
-		Expect(initialized).To(BeTrue())
-	})
-
-	It("countdown", func() {
-		system := Start(Countdown(10))
-		for i := 0; i < 10; i++ {
-			system.Root().Tell("")
-		}
-		system.Wait()
+	Context("Countdown Example", func() {
+		It("stops after correct number of messages", func() {
+			system := Start(Countdown(10))
+			for i := 0; i < 10; i++ {
+				system.Root().Tell("")
+			}
+			system.Wait()
+		})
 	})
 
 	Context("Signals", func() {
@@ -102,7 +92,32 @@ var _ = Describe("ActorSystem", func() {
 		})
 	})
 
-	Context("Behavior", func() {
+	Context("SetupHandler", func() {
+		It("stopping the actor", func() {
+			initialized := false
+			actor := func(ctx ActorContext) MessageHandler {
+				initialized = true
+				return Stopped()
+			}
+			system := Start(actor)
+			system.Wait()
+
+			Expect(initialized).To(BeTrue())
+		})
+
+		It("nil stops the actor too", func() {
+			initialized := false
+			actor := func(ctx ActorContext) MessageHandler {
+				initialized = true
+				return nil
+			}
+			system := Start(actor)
+			system.Wait()
+
+			Expect(initialized).To(BeTrue())
+		})
+	})
+	Context("MessageHandler", func() {
 		It("Switching behavior", func() {
 			stopBehavior := func(msg interface{}) MessageHandler {
 				if msg == "stop" {
@@ -206,6 +221,33 @@ var _ = Describe("ActorSystem", func() {
 					ref.Tell("stop")
 					return Stopped()
 				}
+				system := Start(actor)
+				system.Wait()
+			})
+
+			It("stop removes children", func() {
+				child := func(ctx ActorContext) MessageHandler {
+					return func(msg interface{}) MessageHandler {
+						return Stopped()
+					}
+				}
+
+				actor := func(ctx ActorContext) MessageHandler {
+					Expect(ctx.Children()).To(BeEmpty())
+					ref := ctx.Spawn(child)
+					Expect(ctx.Children()).To(HaveLen(1))
+					ctx.Watch(ref)
+					ref.Tell("stop")
+
+					return func(msg interface{}) MessageHandler {
+						if _, ok := msg.(Terminated); ok {
+							Expect(ctx.Children()).To(HaveLen(0))
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
 				system := Start(actor)
 				system.Wait()
 			})

@@ -109,11 +109,14 @@ type listenCommand struct {
 	ref ActorRef
 	msg interface{}
 }
+type childTerminatedCommand struct {
+	ref ActorRef
+}
 
 func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 	messageHandler := setup(ctx)
 	if messageHandler == nil {
-		messageHandler = ignoreAll
+		messageHandler = Stopped()
 	}
 
 	lastMessageHandler := messageHandler
@@ -135,7 +138,9 @@ func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 			case *terminateCommand:
 				messageHandler = Stopped()
 			case *listenCommand:
-				ctx.listeners = append(ctx.listeners, terminateListener{ref: command.ref, msg: command.msg})
+				ctx.onListenCommand(command)
+			case *childTerminatedCommand:
+				ctx.onChildTerminatedCommand(command)
 			default:
 				panic(fmt.Sprintf("Bad command: %T", cmd))
 			}
@@ -155,7 +160,9 @@ l:
 			case *terminateCommand:
 				// do nothing
 			case *listenCommand:
-				ctx.listeners = append(ctx.listeners, terminateListener{ref: command.ref, msg: command.msg})
+				ctx.onListenCommand(command)
+			case *childTerminatedCommand:
+				ctx.onChildTerminatedCommand(command)
 			default:
 				panic(fmt.Sprintf("Bad command: %T", cmd))
 			}
@@ -177,10 +184,27 @@ l:
 		lastMessageHandler(PostStopSignal{})
 	}
 	ctx.parent.childrenWaitGroup.Done()
+	if ctx.parent.self != nil {
+		ctx.parent.self.commands <- &childTerminatedCommand{ref: ctx.self}
+	}
 
 	for _, listener := range ctx.listeners {
 		listener.ref.Tell(listener.msg)
 	}
+}
+
+func (ctx *localActorContext) onListenCommand(command *listenCommand) {
+	ctx.listeners = append(ctx.listeners, terminateListener{ref: command.ref, msg: command.msg})
+}
+
+func (ctx *localActorContext) onChildTerminatedCommand(command *childTerminatedCommand) {
+	for i, ref := range ctx.children {
+		if ref == command.ref {
+			ctx.children = append(ctx.children[:i], ctx.children[i+1:]...)
+			return
+		}
+	}
+	panic(fmt.Sprintf("bad child: %+v %+v", ctx.children, command))
 }
 
 func (system *actorSystemImpl) Root() ActorRef {
