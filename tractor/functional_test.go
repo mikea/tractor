@@ -11,7 +11,7 @@ var _ = Describe("ActorSystem", func() {
 		It("stops after correct number of messages", func() {
 			system := Start(Countdown(10))
 			for i := 0; i < 10; i++ {
-				system.Root().Tell("")
+				system.Root().Tell(system.Context(), "")
 			}
 			system.Wait()
 		})
@@ -65,7 +65,7 @@ var _ = Describe("ActorSystem", func() {
 				msgDelivered := false
 
 				setup := func(ctx ActorContext) MessageHandler {
-					ctx.Self().Tell("test")
+					ctx.Self().Tell(ctx, "test")
 					ctx.DeliverSignals(true)
 
 					return func(msg interface{}) MessageHandler {
@@ -148,8 +148,8 @@ var _ = Describe("ActorSystem", func() {
 			system := Start(func(ctx ActorContext) MessageHandler {
 				return startBehavior
 			})
-			system.Root().Tell("start")
-			system.Root().Tell("stop")
+			system.Root().Tell(system.Context(), "start")
+			system.Root().Tell(system.Context(), "stop")
 			system.Wait()
 		})
 
@@ -165,7 +165,7 @@ var _ = Describe("ActorSystem", func() {
 				ref := ctx.Spawn(child)
 				Expect(ctx.Children()).To(HaveLen(1))
 				ctx.Watch(ref)
-				ref.Tell("stop")
+				ref.Tell(ctx, "stop")
 
 				return func(msg interface{}) MessageHandler {
 					if _, ok := msg.(Terminated); ok {
@@ -188,9 +188,9 @@ var _ = Describe("ActorSystem", func() {
 				stopReceived := false
 
 				parent := func(ctx ActorContext) MessageHandler {
-					ctx.Self().Tell("start")
-					ctx.Self().Tell("stop")
-					ctx.Self().Tell("wrong")
+					ctx.Self().Tell(ctx, "start")
+					ctx.Self().Tell(ctx, "stop")
+					ctx.Self().Tell(ctx, "wrong")
 					return func(msg interface{}) MessageHandler {
 						if msg == "start" {
 							Expect(startReceived).To(BeFalse())
@@ -218,7 +218,7 @@ var _ = Describe("ActorSystem", func() {
 		Context("Spawn", func() {
 			It("Spawn start a child", func() {
 				child := func(ctx ActorContext) MessageHandler {
-					ctx.Parent().Tell("stop")
+					ctx.Parent().Tell(ctx, "stop")
 					return Stopped()
 				}
 
@@ -258,7 +258,7 @@ var _ = Describe("ActorSystem", func() {
 					Expect(ctx.Children()).To(BeEmpty())
 					ref := ctx.Spawn(child)
 					Expect(ctx.Children()).To(HaveLen(1))
-					ref.Tell("stop")
+					ref.Tell(ctx, "stop")
 					return Stopped()
 				}
 				system := Start(actor)
@@ -277,7 +277,7 @@ var _ = Describe("ActorSystem", func() {
 					ref := ctx.Spawn(child)
 					Expect(ctx.Children()).To(HaveLen(1))
 					ctx.Watch(ref)
-					ref.Tell("stop")
+					ref.Tell(ctx, "stop")
 
 					return func(msg interface{}) MessageHandler {
 						if _, ok := msg.(Terminated); ok {
@@ -309,7 +309,7 @@ var _ = Describe("ActorSystem", func() {
 					ctx.Watch(ref)
 					return func(msg interface{}) MessageHandler {
 						if msg == "stopChild" {
-							ref.Tell("stop")
+							ref.Tell(ctx, "stop")
 							return nil
 						}
 						if _, ok := msg.(Terminated); ok {
@@ -320,7 +320,7 @@ var _ = Describe("ActorSystem", func() {
 				}
 
 				system := Start(root)
-				system.Root().Tell("stopChild")
+				system.Root().Tell(system.Context(), "stopChild")
 				system.Wait()
 			})
 
@@ -339,7 +339,7 @@ var _ = Describe("ActorSystem", func() {
 					ctx.WatchWith(ref, "childTerminated")
 					return func(msg interface{}) MessageHandler {
 						if msg == "stopChild" {
-							ref.Tell("stop")
+							ref.Tell(ctx, "stop")
 							return nil
 						} else if msg == "childTerminated" {
 							return Stopped()
@@ -349,8 +349,91 @@ var _ = Describe("ActorSystem", func() {
 				}
 
 				system := Start(root)
-				system.Root().Tell("stopChild")
+				system.Root().Tell(system.Context(), "stopChild")
 				system.Wait()
+			})
+		})
+
+		Context("Sender", func() {
+			It("works", func() {
+				child := func(ctx ActorContext) MessageHandler {
+					return func(msg interface{}) MessageHandler {
+						if msg == "ping" {
+							ctx.Sender().Tell(ctx, "pong")
+						}
+						return nil
+					}
+				}
+
+				replyRecieved := false
+				parent := func(ctx ActorContext) MessageHandler {
+					ref := ctx.Spawn(child)
+					ref.Tell(ctx, "ping")
+
+					return func(msg interface{}) MessageHandler {
+						if msg == "pong" {
+							replyRecieved = true
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
+				system := Start(parent)
+				system.Wait()
+				Expect(replyRecieved).To(BeTrue())
+			})
+		})
+
+		Context("Ask", func() {
+			It("works", func() {
+				child := func(ctx ActorContext) MessageHandler {
+					return func(msg interface{}) MessageHandler {
+						if msg == "ping" {
+							ctx.Sender().Tell(ctx, "pong")
+						}
+						return nil
+					}
+				}
+
+				replyRecieved := false
+				parent := func(ctx ActorContext) MessageHandler {
+					ref := ctx.Spawn(child)
+
+					return func(msg interface{}) MessageHandler {
+						if msg == "ask" {
+							reply := <-ctx.Ask(ref, "ping")
+							if reply == "pong" {
+								replyRecieved = true
+								return Stopped()
+							}
+							panic(reply)
+						}
+						panic(msg)
+					}
+				}
+
+				system := Start(parent)
+				system.Root().Tell(system.Context(), "ask")
+				system.Wait()
+				Expect(replyRecieved).To(BeTrue())
+			})
+
+			It("system ask", func() {
+				setupRoot := func(ctx ActorContext) MessageHandler {
+					return func(msg interface{}) MessageHandler {
+						if msg == "ping" {
+							ctx.Sender().Tell(ctx, "pong")
+							return Stopped()
+						}
+						panic(msg)
+					}
+				}
+
+				system := Start(setupRoot)
+				reply := <-system.Context().Ask(system.Root(), "ping")
+				system.Wait()
+				Expect(reply).To(Equal("pong"))
 			})
 		})
 	})
@@ -358,7 +441,7 @@ var _ = Describe("ActorSystem", func() {
 	Context("Children", func() {
 		It("children are stopped when parent is", func() {
 			childStopped := false
-			child := func(ctx ActorContext) MessageHandler {
+			childSetup := func(ctx ActorContext) MessageHandler {
 				ctx.DeliverSignals(true)
 				return func(msg interface{}) MessageHandler {
 					if _, ok := msg.(PostStopSignal); ok {
@@ -369,14 +452,35 @@ var _ = Describe("ActorSystem", func() {
 				}
 			}
 
-			parent := func(ctx ActorContext) MessageHandler {
-				ctx.Spawn(child)
+			parentSetup := func(ctx ActorContext) MessageHandler {
+				ctx.Spawn(childSetup)
 				return Stopped()
 			}
 
-			system := Start(parent)
+			system := Start(parentSetup)
 			system.Wait()
 			Expect(childStopped).To(BeTrue())
+		})
+	})
+
+	Context("Counter", func() {
+		Context("typed ref", func() {
+			It("Works", func() {
+				rootSetup := func(ctx ActorContext) MessageHandler {
+					counter := CounterRef{ctx.Spawn(Counter())}
+
+					zero := <-counter.GetAndIncrement(ctx)
+					Expect(zero).To(Equal(0))
+
+					one := <-counter.GetAndIncrement(ctx)
+					Expect(one).To(Equal(1))
+
+					return Stopped()
+				}
+
+				system := Start(rootSetup)
+				system.Wait()
+			})
 		})
 	})
 })
@@ -392,4 +496,28 @@ func Countdown(start int) SetupHandler {
 			return nil
 		}
 	}
+}
+
+type getAndIncrement struct{}
+
+func Counter() SetupHandler {
+	return func(ctx ActorContext) MessageHandler {
+		count := 0
+		return func(m interface{}) MessageHandler {
+			switch m.(type) {
+			case getAndIncrement:
+				ctx.Sender().Tell(ctx, count)
+				count++
+			}
+			return nil
+		}
+	}
+}
+
+type CounterRef struct {
+	Ref ActorRef
+}
+
+func (ref CounterRef) GetAndIncrement(ctx ActorContext) chan interface{} {
+	return ctx.Ask(ref.Ref, getAndIncrement{})
 }

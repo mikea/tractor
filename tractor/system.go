@@ -16,27 +16,38 @@ func Start(root SetupHandler) ActorSystem {
 }
 
 type actorSystemImpl struct {
-	topContext *localActorContext
-	root       *localActorRef
+	context *localActorContext
+	root    *localActorRef
+}
+
+func (system *actorSystemImpl) Context() ActorContext {
+	return system.context
 }
 
 func (system *actorSystemImpl) Wait() {
-	system.topContext.childrenWaitGroup.Wait()
+	system.context.childrenWaitGroup.Wait()
 }
 
 type localActorRef struct {
-	system   *actorSystemImpl
-	mailbox  chan interface{}
-	commands chan interface{}
+	context *localActorContext
 }
 
-func (ref *localActorRef) Tell(msg interface{}) {
-	ref.mailbox <- msg
+func (ref *localActorRef) Tell(ctx ActorContext, msg interface{}) {
+	ref.context.mailbox <- envelope{msg: msg, sender: ctx.Self()}
+}
+
+func (ref *localActorRef) tellCommand(command interface{}) {
+	ref.context.commands <- command
 }
 
 type terminateListener struct {
 	ref ActorRef
 	msg interface{}
+}
+
+type envelope struct {
+	sender ActorRef
+	msg    interface{}
 }
 
 type localActorContext struct {
@@ -47,6 +58,25 @@ type localActorContext struct {
 	deliverSignals    bool
 	children          []*localActorRef
 	listeners         []terminateListener
+	mailbox           chan envelope
+	commands          chan interface{}
+	currentEnvelope   *envelope
+}
+
+func (ctx *localActorContext) Ask(ref ActorRef, msg interface{}) chan interface{} {
+	ch := make(chan interface{}, 1)
+	ctx.Spawn(func(ctx ActorContext) MessageHandler {
+		ref.Tell(ctx, msg)
+		return func(message interface{}) MessageHandler {
+			ch <- message
+			return Stopped()
+		}
+	})
+	return ch
+}
+
+func (ctx *localActorContext) Sender() ActorRef {
+	return ctx.currentEnvelope.sender
 }
 
 func (ctx *localActorContext) Watch(actor ActorRef) {
@@ -54,7 +84,7 @@ func (ctx *localActorContext) Watch(actor ActorRef) {
 }
 
 func (ctx *localActorContext) WatchWith(actor ActorRef, msg interface{}) {
-	actor.(*localActorRef).commands <- &listenCommand{ref: ctx.self, msg: msg}
+	actor.(*localActorRef).context.commands <- &listenCommand{ref: ctx.self, msg: msg}
 }
 
 func (ctx *localActorContext) Children() []ActorRef {
@@ -71,6 +101,8 @@ func newContext(system *actorSystemImpl, self *localActorRef, parent *localActor
 		self:              self,
 		parent:            parent,
 		childrenWaitGroup: &sync.WaitGroup{},
+		mailbox:           make(chan envelope, defaultMailboxSize),
+		commands:          make(chan interface{}, defaultCommandsSize),
 	}
 }
 
@@ -91,16 +123,13 @@ func (ctx *localActorContext) Spawn(handler SetupHandler) ActorRef {
 }
 
 func (ctx *localActorContext) spawn(handler SetupHandler) *localActorRef {
-	ref := &localActorRef{
-		system:   ctx.system,
-		mailbox:  make(chan interface{}, defaultMailboxSize),
-		commands: make(chan interface{}, defaultCommandsSize),
-	}
+	ref := &localActorRef{}
+	childContext := newContext(ctx.system, ref, ctx)
+	ref.context = childContext
 	ctx.children = append(ctx.children, ref)
 	ctx.childrenWaitGroup.Add(1)
 	go func() {
-		newContext(ref.system, ref, ctx).
-			mainLoop(ref, handler)
+		childContext.mainLoop(handler)
 	}()
 	return ref
 }
@@ -114,7 +143,7 @@ type childTerminatedCommand struct {
 	ref ActorRef
 }
 
-func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
+func (ctx *localActorContext) mainLoop(setup SetupHandler) {
 	messageHandler := ctx.setup(setup)
 	if messageHandler == nil {
 		messageHandler = Stopped()
@@ -134,7 +163,7 @@ func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 
 		lastMessageHandler = messageHandler
 		select {
-		case cmd := <-ref.commands:
+		case cmd := <-ctx.commands:
 			switch command := cmd.(type) {
 			case *terminateCommand:
 				messageHandler = Stopped()
@@ -145,8 +174,9 @@ func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 			default:
 				panic(fmt.Sprintf("Bad command: %T", cmd))
 			}
-		case msg := <-ref.mailbox:
-			if newHandler := ctx.deliver(messageHandler, msg); newHandler != nil {
+		case env := <-ctx.mailbox:
+			ctx.currentEnvelope = &env
+			if newHandler := ctx.deliver(messageHandler, env.msg); newHandler != nil {
 				messageHandler = newHandler
 			}
 		}
@@ -156,7 +186,7 @@ func (ctx *localActorContext) mainLoop(ref *localActorRef, setup SetupHandler) {
 l:
 	for {
 		select {
-		case cmd := <-ref.commands:
+		case cmd := <-ctx.commands:
 			switch command := cmd.(type) {
 			case *terminateCommand:
 				// do nothing
@@ -177,7 +207,7 @@ l:
 	}
 
 	for _, child := range ctx.children {
-		child.commands <- &terminateCommand{}
+		child.context.commands <- &terminateCommand{}
 	}
 	ctx.childrenWaitGroup.Wait()
 
@@ -186,11 +216,11 @@ l:
 	}
 	ctx.parent.childrenWaitGroup.Done()
 	if ctx.parent.self != nil {
-		ctx.parent.self.commands <- &childTerminatedCommand{ref: ctx.self}
+		ctx.parent.commands <- &childTerminatedCommand{ref: ctx.self}
 	}
 
 	for _, listener := range ctx.listeners {
-		listener.ref.Tell(listener.msg)
+		listener.ref.Tell(ctx, listener.msg)
 	}
 }
 
@@ -233,6 +263,6 @@ func (system *actorSystemImpl) Root() ActorRef {
 }
 
 func (system *actorSystemImpl) start(root SetupHandler) {
-	system.topContext = newContext(system, nil, nil)
-	system.root = system.topContext.spawn(root)
+	system.context = newContext(system, nil, nil)
+	system.root = system.context.spawn(root)
 }

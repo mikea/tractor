@@ -111,6 +111,35 @@ or with a custom message:
 ctx.WatchWith(ctx.Spawn(child), "childTerminated")
 ```
 
+### Actor Communication
+
+#### Tell
+
+Sending messages to a different actor is potentially a difficult enterprise and might involve other actor creation. Thus
+current actor context is required to send messsages:
+
+```go
+child := ctx.Spawn(setupChild)
+child.Tell(ctx, "ping")
+```
+
+#### Sender
+
+During the event processing the sender of the message is available:
+
+```
+return func(msg interface{}) MessageHandler {
+    if msg == "ping" {
+        ctx.Sender().Tell(ctx, "pong")
+    }
+    return nil
+}
+```
+
+#### Ask
+
+Asking an actor means sending it a message and expecting a reply back.
+
 ### Actor System
 
 #### Starting System
@@ -131,8 +160,41 @@ system.Wait()
 
 #### Communicating With System
 
-Communication with the running system is done through the root actor reference:
+Communication with the running system is done through the root actor reference and system context:
 
 ```go
-system.Root().Tell("request")
+system.Root().Tell(system.Context(), "request")
+```
+
+### Patterns
+
+#### Typed Reference
+
+Dealing with untyped messages might be challenges to scale. A simple typed wrappers can be created that will define
+public api:
+
+```go
+type getAndIncrement struct{ }
+
+func Counter() SetupHandler {
+	return func(ctx ActorContext) MessageHandler {
+		count := 0
+		return func(m interface{}) MessageHandler {
+			switch m.(type) {
+			case getAndIncrement:
+				ctx.Sender().Tell(ctx, count)
+				count++
+			}
+			return nil
+		}
+	}
+}
+
+type CounterRef struct {
+	Ref ActorRef
+}
+
+func (ref CounterRef) GetAndIncrement(ctx ActorContext) chan interface{} {
+	return ctx.Ask(ref.Ref, getAndIncrement{})
+}
 ```
