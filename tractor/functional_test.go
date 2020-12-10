@@ -436,6 +436,44 @@ var _ = Describe("ActorSystem", func() {
 				Expect(reply).To(Equal("pong"))
 			})
 		})
+
+		Context("Stash", func() {
+			It("stash/unstash all work", func() {
+
+				acc := ""
+				add := func(msg interface{}) MessageHandler {
+					if msg == "stop" {
+						return Stopped()
+					} else if s, ok := msg.(string); ok {
+						acc = acc + s
+						return nil
+					}
+
+					panic(msg)
+				}
+
+				rootSetup := func(ctx ActorContext) MessageHandler {
+					stash := ctx.NewStash(1000)
+					return func(msg interface{}) MessageHandler {
+						if msg == "unstash" {
+							return stash.UnstashAll(add)
+						} else {
+							stash.Stash(msg)
+						}
+
+						return nil
+					}
+				}
+
+				system := Start(rootSetup)
+				system.Root().Tell(system.Context(), "1")
+				system.Root().Tell(system.Context(), "2")
+				system.Root().Tell(system.Context(), "unstash")
+				system.Root().Tell(system.Context(), "stop")
+				system.Wait()
+				Expect(acc).To(Equal("12"))
+			})
+		})
 	})
 
 	Context("Children", func() {

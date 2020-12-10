@@ -33,11 +33,7 @@ type localActorRef struct {
 }
 
 func (ref *localActorRef) Tell(ctx ActorContext, msg interface{}) {
-	ref.context.mailbox <- envelope{msg: msg, sender: ctx.Self()}
-}
-
-func (ref *localActorRef) tellCommand(command interface{}) {
-	ref.context.commands <- command
+	ref.context.mailbox.Tell(envelope{msg: msg, sender: ctx.Self()})
 }
 
 type terminateListener struct {
@@ -50,6 +46,47 @@ type envelope struct {
 	msg    interface{}
 }
 
+type mailbox struct {
+	messages chan envelope
+	commands chan interface{}
+	stash    []envelope
+}
+
+func (m *mailbox) takeCommand() interface{} {
+	select {
+	case cmd := <-m.commands:
+		return cmd
+	default:
+		return nil
+	}
+}
+
+func (m *mailbox) TellCommand(msg interface{}) {
+	m.commands <- msg
+}
+
+func (m *mailbox) take() interface{} {
+	if len(m.stash) > 0 {
+		env := m.stash[0]
+		m.stash = m.stash[1:]
+		return env
+	}
+	select {
+	case cmd := <-m.commands:
+		return cmd
+	case env := <-m.messages:
+		return env
+	}
+}
+
+func (m *mailbox) Tell(e envelope) {
+	m.messages <- e
+}
+
+func (m *mailbox) unstashAll(buffer []envelope) {
+	m.stash = append(m.stash, buffer...)
+}
+
 type localActorContext struct {
 	system            *actorSystemImpl
 	parent            *localActorContext
@@ -58,9 +95,8 @@ type localActorContext struct {
 	deliverSignals    bool
 	children          []*localActorRef
 	listeners         []terminateListener
-	mailbox           chan envelope
-	commands          chan interface{}
 	currentEnvelope   *envelope
+	mailbox           mailbox
 }
 
 func (ctx *localActorContext) Ask(ref ActorRef, msg interface{}) chan interface{} {
@@ -84,7 +120,7 @@ func (ctx *localActorContext) Watch(actor ActorRef) {
 }
 
 func (ctx *localActorContext) WatchWith(actor ActorRef, msg interface{}) {
-	actor.(*localActorRef).context.commands <- &listenCommand{ref: ctx.self, msg: msg}
+	actor.(*localActorRef).context.mailbox.TellCommand(&listenCommand{ref: ctx.self, msg: msg})
 }
 
 func (ctx *localActorContext) Children() []ActorRef {
@@ -101,8 +137,14 @@ func newContext(system *actorSystemImpl, self *localActorRef, parent *localActor
 		self:              self,
 		parent:            parent,
 		childrenWaitGroup: &sync.WaitGroup{},
-		mailbox:           make(chan envelope, defaultMailboxSize),
-		commands:          make(chan interface{}, defaultCommandsSize),
+		mailbox:           newMailbox(),
+	}
+}
+
+func newMailbox() mailbox {
+	return mailbox{
+		messages: make(chan envelope, defaultMailboxSize),
+		commands: make(chan interface{}, defaultCommandsSize),
 	}
 }
 
@@ -135,6 +177,7 @@ func (ctx *localActorContext) spawn(handler SetupHandler) *localActorRef {
 }
 
 type terminateCommand struct{}
+
 type listenCommand struct {
 	ref ActorRef
 	msg interface{}
@@ -162,43 +205,44 @@ func (ctx *localActorContext) mainLoop(setup SetupHandler) {
 		}
 
 		lastMessageHandler = messageHandler
-		select {
-		case cmd := <-ctx.commands:
-			switch command := cmd.(type) {
-			case *terminateCommand:
-				messageHandler = Stopped()
-			case *listenCommand:
-				ctx.onListenCommand(command)
-			case *childTerminatedCommand:
-				ctx.onChildTerminatedCommand(command)
-			default:
-				panic(fmt.Sprintf("Bad command: %T", cmd))
-			}
-		case env := <-ctx.mailbox:
-			ctx.currentEnvelope = &env
-			if newHandler := ctx.deliver(messageHandler, env.msg); newHandler != nil {
+
+		msg := ctx.mailbox.take()
+
+		switch command := msg.(type) {
+		case envelope:
+			ctx.currentEnvelope = &command
+			if newHandler := ctx.deliver(messageHandler, command.msg); newHandler != nil {
 				messageHandler = newHandler
 			}
+			ctx.currentEnvelope = nil
+		case *terminateCommand:
+			messageHandler = Stopped()
+		case *listenCommand:
+			ctx.onListenCommand(command)
+		case *childTerminatedCommand:
+			ctx.onChildTerminatedCommand(command)
+		default:
+			panic(fmt.Sprintf("Bad command: %T", command))
 		}
 	}
 
 	// drain commands if any
 l:
 	for {
-		select {
-		case cmd := <-ctx.commands:
-			switch command := cmd.(type) {
-			case *terminateCommand:
-				// do nothing
-			case *listenCommand:
-				ctx.onListenCommand(command)
-			case *childTerminatedCommand:
-				ctx.onChildTerminatedCommand(command)
-			default:
-				panic(fmt.Sprintf("Bad command: %T", cmd))
-			}
-		default:
+		cmd := ctx.mailbox.takeCommand()
+		if cmd == nil {
 			break l
+		}
+
+		switch command := cmd.(type) {
+		case *terminateCommand:
+			// do nothing
+		case *listenCommand:
+			ctx.onListenCommand(command)
+		case *childTerminatedCommand:
+			ctx.onChildTerminatedCommand(command)
+		default:
+			panic(fmt.Sprintf("Bad command: %T", cmd))
 		}
 	}
 
@@ -207,7 +251,7 @@ l:
 	}
 
 	for _, child := range ctx.children {
-		child.context.commands <- &terminateCommand{}
+		child.context.mailbox.TellCommand(&terminateCommand{})
 	}
 	ctx.childrenWaitGroup.Wait()
 
@@ -216,7 +260,7 @@ l:
 	}
 	ctx.parent.childrenWaitGroup.Done()
 	if ctx.parent.self != nil {
-		ctx.parent.commands <- &childTerminatedCommand{ref: ctx.self}
+		ctx.parent.mailbox.TellCommand(&childTerminatedCommand{ref: ctx.self})
 	}
 
 	for _, listener := range ctx.listeners {
@@ -265,4 +309,34 @@ func (system *actorSystemImpl) Root() ActorRef {
 func (system *actorSystemImpl) start(root SetupHandler) {
 	system.context = newContext(system, nil, nil)
 	system.root = system.context.spawn(root)
+}
+
+type stashBuffer struct {
+	context *localActorContext
+	buffer  []envelope
+}
+
+func (s *stashBuffer) Stash(msg interface{}) {
+	s.buffer = append(s.buffer, envelope{
+		sender: s.context.currentEnvelope.sender,
+		msg:    msg,
+	})
+}
+
+func (s *stashBuffer) UnstashAll(handler MessageHandler) MessageHandler {
+	s.context.mailbox.unstashAll(s.buffer)
+	s.buffer = nil
+	return handler
+}
+
+func (s *stashBuffer) Unstash(handler MessageHandler, count int) MessageHandler {
+	s.context.mailbox.unstashAll(s.buffer[:count])
+	s.buffer = s.buffer[count:]
+	return handler
+}
+
+func (ctx *localActorContext) NewStash(size int) StashBuffer {
+	return &stashBuffer{
+		context: ctx,
+	}
 }

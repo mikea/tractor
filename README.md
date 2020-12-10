@@ -139,6 +139,12 @@ return func(msg interface{}) MessageHandler {
 #### Ask
 
 Asking an actor means sending it a message and expecting a reply back.
+`Ask()` method in context provides a bridge between go channels and actor communcation, enabling you to write blocking
+code:
+
+```go
+reply := <-ctx.Ask(ref, "ping")
+```
 
 ### Actor System
 

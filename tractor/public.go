@@ -22,6 +22,7 @@ type ActorContext interface {
 
 	DeliverSignals(value bool)
 	Ask(ref ActorRef, msg interface{}) chan interface{}
+	NewStash(size int) StashBuffer
 }
 
 type PostInitSignal struct{}
@@ -37,4 +38,10 @@ type MessageHandler func(message interface{}) MessageHandler
 
 func Stopped() MessageHandler {
 	return stopped.handle
+}
+
+type StashBuffer interface {
+	Stash(msg interface{})
+	UnstashAll(handler MessageHandler) MessageHandler
+	Unstash(handler MessageHandler, count int) MessageHandler
 }
