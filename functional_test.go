@@ -2,6 +2,7 @@ package tractor
 
 import (
 	"fmt"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -505,7 +506,7 @@ var _ = Describe("ActorSystem", func() {
 		Context("typed ref", func() {
 			It("Works", func() {
 				rootSetup := func(ctx ActorContext) MessageHandler {
-					counter := CounterRef{ctx.Spawn(Counter())}
+					counter := CounterRef{ctx.Spawn(Counter)}
 
 					zero := <-counter.GetAndIncrement(ctx)
 					Expect(zero).To(Equal(0))
@@ -538,17 +539,16 @@ func Countdown(start int) SetupHandler {
 
 type getAndIncrement struct{}
 
-func Counter() SetupHandler {
-	return func(ctx ActorContext) MessageHandler {
-		count := 0
-		return func(m interface{}) MessageHandler {
-			switch m.(type) {
-			case getAndIncrement:
-				ctx.Sender().Tell(ctx, count)
-				count++
-			}
-			return nil
+// without parameters one function definition layer can be unwrapped
+func Counter(ctx ActorContext) MessageHandler {
+	count := 0
+	return func(m interface{}) MessageHandler {
+		switch m.(type) {
+		case getAndIncrement:
+			ctx.Sender().Tell(ctx, count)
+			count++
 		}
+		return nil
 	}
 }
 

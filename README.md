@@ -44,16 +44,16 @@ To parametrize an actor create a closure binding initialization parameters:
 
 ```go
 func Countdown(start int) SetupHandler {
-	return func(ctx ActorContext) MessageHandler {
-		count := start
-		return func(msg interface{}) MessageHandler {
-			count = count - 1
-			if count == 0 {
-				return Stopped()
-			}
-			return nil
-		}
-	}
+    return func(ctx ActorContext) MessageHandler {
+        count := start
+        return func(msg interface{}) MessageHandler {
+            count = count - 1
+            if count == 0 {
+                return Stopped()
+            }
+            return nil
+        }
+    }
 }
 ```
 
@@ -79,7 +79,7 @@ func(ctx ActorContext) MessageHandler {
         case PostInitSignal:
             // first message delivered after the initialization
         case PreStopSignal:
-        	// delivered before terminating children
+            // delivered before terminating children
         case PostStopSignal:
             // delivered after terminating all children
         }
@@ -98,7 +98,7 @@ func(ctx ActorContext) MessageHandler {
     return func(msg interface{}) MessageHandler {
         switch msg.(type) {
         case Terminated:
-        	// child was terminated
+            // child was terminated
         }
         return nil
     }
@@ -183,24 +183,33 @@ public api:
 type getAndIncrement struct{ }
 
 func Counter() SetupHandler {
-	return func(ctx ActorContext) MessageHandler {
-		count := 0
-		return func(m interface{}) MessageHandler {
-			switch m.(type) {
-			case getAndIncrement:
-				ctx.Sender().Tell(ctx, count)
-				count++
-			}
-			return nil
-		}
-	}
+    return func(ctx ActorContext) MessageHandler {
+        count := 0
+        return func(m interface{}) MessageHandler {
+            switch m.(type) {
+            case getAndIncrement:
+                ctx.Sender().Tell(ctx, count)
+                count++
+            }
+            return nil
+        }
+    }
 }
 
 type CounterRef struct {
-	Ref ActorRef
+    Ref ActorRef
 }
 
 func (ref CounterRef) GetAndIncrement(ctx ActorContext) chan interface{} {
-	return ctx.Ask(ref.Ref, getAndIncrement{})
+    return ctx.Ask(ref.Ref, getAndIncrement{})
 }
+```
+
+## Development
+
+Use nix to set up development environment:
+
+```bash
+nix-shell
+go test ./...
 ```
